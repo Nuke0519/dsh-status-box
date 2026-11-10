@@ -113,6 +113,11 @@ cd menubar
 - 开发期热更新会残留旧实例的 2 秒轮询，偶尔出现"召唤被旧实例吃掉"。重启一次 DSH 即恢复。
 - 菜单栏图标取自 DeepSeek Harness 官方安装包内的品牌图形，仅作本地个人使用；如需二次分发请注意商标准入。
 
+## 收录状态
+
+- 已在 GitHub 公开：<https://github.com/Nuke0519/dsh-status-box>（tag `v1.1.2`）
+- DSH 插件市场（dshmarket 的「发现」页）用的是人工审核索引 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，收录需要提一个 yml 的 PR；尚未提交。
+
 ## 测试
 
 纯函数（状态聚合、桥接负载）有 `node:test` 覆盖，**零依赖**，不需要 `npm install`：
