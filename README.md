@@ -101,6 +101,12 @@ cd menubar
 - **只走本机回环，不联网、不上传、不读 DSH 数据库**。页面源 `127.0.0.1:60166` → `127.0.0.1:59421` 是简单跨域请求（`Content-Type: text/plain`，无预检），小助手只回 `Access-Control-Allow-Origin: *`。
 - 为什么菜单栏要单独一个原生程序：DSH 的 `Tray` 由打包好的 Electron 主进程创建，插件跑在 Host 子进程，没有托盘/角标接口；只能用原生小助手承载，再和插件走上面的本地回环。
 
+## 故障排查
+
+- **设置页显示「没连上菜单栏小助手」**：说明 DSH 页面到 `127.0.0.1:59421` 的请求被浏览器拦下了。1.1.3 起本机桥会回 `Access-Control-Allow-Private-Network: true`（Chrome 的 Private Network Access 预检要求），旧版本在部分 Chrome 版本上会被拦；升级小助手后重新打开设置页即可。
+- **开关加载中/离线**：页面会自己重试 5 次（约 1–5 秒间隔），也可以点提示后面的「重试」。
+- **热键没反应**：确认 `launchctl print gui/$(id -u)/com.dsh.statusbox.menubar` 有 pid；热键只在 `.app` 包里才收得到（`menubar/install.sh` 会打包）。
+
 ## 已知限制
 
 - **状态常驻**：DSH 还开着（前台/后台/最小化/窗口关掉都算）就一直显示最后已知数量与颜色，不会自己变灰；只有退出 DSH 90 秒后才转灰 `○`。

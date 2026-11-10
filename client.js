@@ -57,6 +57,7 @@ window.__ModuleLoader__.load({
       'settings.openOnSend': '发送后打开对话页',
       'settings.openOnSendHint': '关掉就留在原地继续忙手头的事，任务照样在后台开跑。',
       'settings.offline': '没连上菜单栏小助手（状态盒）。先运行 menubar/install.sh，或重启一次 DSH。',
+      'settings.retry': '重试',
       'time.now': '刚刚',
       'time.m': '{n} 分钟前',
       'time.h': '{n} 小时前',
@@ -74,6 +75,7 @@ window.__ModuleLoader__.load({
       'settings.openOnSend': 'Open the conversation after sending',
       'settings.openOnSendHint': 'Turn it off to stay where you are: the task still starts in the background.',
       'settings.offline': 'The menu-bar companion is not reachable. Run menubar/install.sh, or restart DSH.',
+      'settings.retry': 'Retry',
       'time.now': 'just now',
       'time.m': '{n}m ago',
       'time.h': '{n}h ago',
@@ -103,6 +105,8 @@ window.__ModuleLoader__.load({
       '.qd-settings-label{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}',
       '.qd-settings-hint{margin:0;color:var(--dsw-alias-label-secondary,#6b7280);font-size:12px}',
       '.qd-settings-note{margin:0;color:var(--dsw-alias-state-warn-primary,#d97706);font-size:12px}',
+      '.qd-retry{margin-left:6px;padding:0;border:none;background:none;color:var(--dsw-alias-brand-primary,#4f6ef7);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline}',
+      '.qd-retry:hover{opacity:.8}',
       '.qd-switch{flex:none;position:relative;width:38px;height:22px;padding:0;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#dfe3e8);background:var(--dsw-alias-bg-layer-2,#f1f3f6);cursor:pointer;transition:background .15s,border-color .15s}',
       '.qd-switch.on{background:var(--dsw-alias-brand-primary,#4f6ef7);border-color:var(--dsw-alias-brand-primary,#4f6ef7)}',
       '.qd-switch:disabled{cursor:default;opacity:.5}',
@@ -602,10 +606,23 @@ window.__ModuleLoader__.load({
       const t = props.t;
       const [state, setState] = React.useState({ phase: 'loading', openOnSend: false });
 
+      // Bumped to re-run the probe: automatic retries while the companion starts
+      // up, plus a manual retry from the offline note below.
+      const [attempt, setAttempt] = React.useState(0);
+
       React.useEffect(function () {
         let stopped = false;
+        let timer = 0;
+        function retryLater() {
+          if (stopped || attempt >= 5) return;
+          timer = setTimeout(function () {
+            setAttempt(attempt + 1);
+          }, 1200 + attempt * 800);
+        }
         function fail() {
-          if (!stopped) setState({ phase: 'offline', openOnSend: false });
+          if (stopped) return;
+          setState({ phase: 'offline', openOnSend: false });
+          retryLater();
         }
         try {
           if (typeof fetch !== 'function') {
@@ -630,8 +647,9 @@ window.__ModuleLoader__.load({
         }
         return function () {
           stopped = true;
+          if (timer !== 0) clearTimeout(timer);
         };
-      }, []);
+      }, [attempt]);
 
       function setPreference(next) {
         setState({ phase: 'ready', openOnSend: next });
@@ -686,7 +704,26 @@ window.__ModuleLoader__.load({
             h('span', { className: 'qd-switch-knob' })
           )
         ),
-        ready ? null : h('p', { className: 'qd-settings-note' }, t('settings.offline'))
+        ready
+          ? null
+          : h(
+              'p',
+              { className: 'qd-settings-note' },
+              t('settings.offline'),
+              ' ',
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'qd-retry',
+                  onClick: function () {
+                    setState({ phase: 'loading', openOnSend: state.openOnSend });
+                    setAttempt(attempt + 1);
+                  }
+                },
+                t('settings.retry')
+              )
+            )
       );
     }
 

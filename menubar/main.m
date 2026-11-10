@@ -1010,7 +1010,11 @@ static void respond(int client, int code, const char *body) {
     [head appendString:@"Vary: Origin\r\n"];
   }
   [head appendString:@"Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"];
-  [head appendString:@"Access-Control-Allow-Headers: Content-Type\r\n"];
+  [head appendString:@"Access-Control-Allow-Headers: Content-Type, Access-Control-Request-Private-Network\r\n"];
+  // Chrome's Private Network Access: a page in a "less private" address space
+  // (e.g. the dsh-app:// shell) must get this header on the preflight, or the
+  // request to 127.0.0.1 is blocked before it is ever sent.
+  [head appendString:@"Access-Control-Allow-Private-Network: true\r\n"];
   [head appendString:@"Cache-Control: no-store\r\n"];
   if (code == 204) {
     [head appendString:@"Content-Length: 0\r\n"];
