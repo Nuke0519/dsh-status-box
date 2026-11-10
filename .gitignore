@@ -1,0 +1,10 @@
+# build output
+menubar/dshstatusbox
+menubar/dshtaskdock
+*.app/
+
+# macOS
+.DS_Store
+
+# node
+node_modules/

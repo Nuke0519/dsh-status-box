@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Status Box">
+  <rect x="3" y="3" width="58" height="58" rx="14" fill="#247bbf" fill-opacity="0.10"/>
+  <rect x="11" y="44" width="42" height="6" rx="3" fill="#247bbf"/>
+  <circle cx="18" cy="18" r="4.5" fill="#e0a02a"/>
+  <rect x="27" y="15" width="26" height="6" rx="3" fill="#247bbf" fill-opacity="0.85"/>
+  <circle cx="18" cy="30" r="4.5" fill="#2f9e63"/>
+  <rect x="27" y="27" width="20" height="6" rx="3" fill="#247bbf" fill-opacity="0.6"/>
+  <rect x="15" y="39" width="14" height="4" rx="2" fill="#247bbf" fill-opacity="0.35"/>
+</svg>

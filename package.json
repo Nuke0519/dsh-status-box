@@ -1,0 +1,63 @@
+{
+  "name": "dsh-status-box",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "macOS menu-bar status + quick task capture for DeepSeek Harness: a persistent whale icon with running/waiting counts, and one global hotkey to fire a task into any workspace without opening the app.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "menubar/main.m",
+    "menubar/whale.png",
+    "menubar/build.sh",
+    "menubar/install.sh",
+    "menubar/uninstall.sh",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "license": "MIT",
+  "author": "mxw",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "macos",
+    "menubar",
+    "status-bar",
+    "task-capture"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/USERNAME/dsh-status-box.git"
+  },
+  "homepage": "https://github.com/USERNAME/dsh-status-box#readme",
+  "bugs": {
+    "url": "https://github.com/USERNAME/dsh-status-box/issues"
+  },
+  "scripts": {
+    "build:menubar": "bash menubar/build.sh",
+    "install:menubar": "bash menubar/install.sh",
+    "uninstall:menubar": "bash menubar/uninstall.sh"
+  }
+}
