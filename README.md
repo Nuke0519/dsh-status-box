@@ -2,7 +2,7 @@
 
 **DeepSeek Harness 的 macOS 状态盒**：菜单栏常驻一条小鲸鱼看全局任务状态，按一下全局热键就能把任务丢进任意工作区——不用切回 DSH，也不用手动点开一个个工作区。
 
-> Status + quick task capture for DeepSeek Harness on macOS. A persistant menu-bar whale shows running / waiting / done counts across every workspace, and one global hotkey (`⌥⌘⇧D`) opens a Spotlight-style box that starts a real session in the workspace you pick.
+> Status + quick task capture for DeepSeek Harness on macOS. A persistent menu-bar whale shows running / waiting / done counts across every workspace, and one global hotkey (`⌥⌘⇧D`) opens a Spotlight-style box that starts a real session in the workspace you pick.
 
 ![菜单栏](docs/screenshots/menubar.png)
 
