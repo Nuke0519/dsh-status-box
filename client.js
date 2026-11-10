@@ -36,7 +36,13 @@ window.__ModuleLoader__.load({
     // The bridge entry is deliberately headless, so the factory hands it the
     // task starter directly; every task id is delivered at most once per frame.
     const taskSink = { startTask: null, openSession: null };
+    // Task ids already handed to this frame. Bounded twice over: entries expire
+    // after a few minutes and the list never grows past a small cap, so a long
+    // lived window cannot leak memory (the companion retries an un-acked task
+    // for 45 s, so a 5 minute window is plenty).
     const bridgeSeenTasks = [];
+    const TASK_DEDUPE_MS = 5 * 60 * 1000;
+    const TASK_DEDUPE_MAX = 100;
 
     //#region locale dictionaries
     const zh = {
@@ -443,6 +449,27 @@ window.__ModuleLoader__.load({
      * Runs one task queued in the native window. The companion marks a task
      * in-flight once it is handed out, so repeated polls cannot double-send.
      */
+    function pruneSeenTasks(now) {
+      for (let index = bridgeSeenTasks.length - 1; index >= 0; index -= 1) {
+        if (now - bridgeSeenTasks[index].at > TASK_DEDUPE_MS) bridgeSeenTasks.splice(index, 1);
+      }
+    }
+
+    function sawTask(id) {
+      pruneSeenTasks(Date.now());
+      for (let index = 0; index < bridgeSeenTasks.length; index += 1) {
+        if (bridgeSeenTasks[index].id === id) return true;
+      }
+      return false;
+    }
+
+    function rememberTask(id) {
+      bridgeSeenTasks.push({ id: id, at: Date.now() });
+      if (bridgeSeenTasks.length > TASK_DEDUPE_MAX) {
+        bridgeSeenTasks.splice(0, bridgeSeenTasks.length - TASK_DEDUPE_MAX);
+      }
+    }
+
     function deliverTask(task, data) {
       if (task === null || typeof task !== 'object') return;
       const id = task.id;
@@ -452,9 +479,9 @@ window.__ModuleLoader__.load({
         ackTask(id, false, 'empty');
         return;
       }
-      if (bridgeSeenTasks.indexOf(id) !== -1) return;
+      if (sawTask(id)) return;
       if (typeof taskSink.startTask !== 'function') return;
-      bridgeSeenTasks.push(id);
+      rememberTask(id);
       // a workspace id cached by the companion may be gone; fall back to a
       // workspace this frame actually knows about
       let workspaceId = typeof task.workspaceId === 'string' ? task.workspaceId : '';
@@ -674,6 +701,9 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['slots', 'locale'],
+      // Pure helpers, used by /tmp style node:test coverage; the module loader
+      // only ever reads inject/apply, so this stays inert at runtime.
+      __internal: { aggregate, buildBridgePayload, stateOf, toRow, visibleSession },
       apply(ctx) {
         ctx.effect(function () {
           return ctx.locale.register(NS, { zh, en });

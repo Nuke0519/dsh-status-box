@@ -34,6 +34,27 @@
 static const uint16_t kPort = 59421;
 static const NSTimeInterval kStaleAfter = 90.0;
 
+// The bridge only accepts browser requests from the DSH page itself: the
+// desktop shell loads it from the custom dsh-app:// scheme, the web UI from
+// loopback http. Local tools (curl, the installer, the hotkey helper) send no
+// Origin header and are allowed, because they cannot be reached from a page.
+static BOOL bridgeOriginAllowed(NSString *origin) {
+  if (origin.length == 0) return YES;
+  if ([origin hasPrefix:@"dsh-app://"]) return YES;
+  if ([origin hasPrefix:@"http://127.0.0.1:"]) return YES;
+  if ([origin hasPrefix:@"http://localhost:"]) return YES;
+  return NO;
+}
+
+static __thread char tBridgeAllowedOrigin[160];
+
+// /debug and /panelstate expose internals (session titles, the draft text in
+// the capture field): off unless explicitly enabled for a debugging session.
+static BOOL debugRoutesEnabled(void) {
+  const char *value = getenv("DSH_STATUS_BOX_DEBUG");
+  return value != NULL && strcmp(value, "1") == 0;
+}
+
 // While the DSH app is alive the last known status stays authoritative: the
 // renderer may be throttled (minimized window, closed window) and simply stop
 // posting for a while, but that is not "no status" — the menu bar item keeps
@@ -77,7 +98,7 @@ static NSMutableDictionary *gConfig = nil;  // {openOnSend: bool}, persisted
 static BOOL configBool(NSString *key, BOOL fallback);
 static void saveConfig(void);
 
-static void notifyTaskResult(BOOL ok, NSString *error);
+static void notifyTaskResult(BOOL ok, NSString *error, NSString *text);
 static void showCaptureWindow(void);
 static void toggleCaptureWindow(void);
 
@@ -215,9 +236,11 @@ static NSArray *takePendingTasks(void) {
 }
 
 static void ackTask(NSString *taskId, BOOL ok, NSString *error) {
+  NSString *text = nil;
   @synchronized(gQueueToken) {
     for (NSInteger index = 0; index < (NSInteger)gQueue.count; index += 1) {
       if ([gQueue[(NSUInteger)index][@"id"] isEqual:taskId]) {
+        text = gQueue[(NSUInteger)index][@"text"];
         [gQueue removeObjectAtIndex:(NSUInteger)index];
         break;
       }
@@ -226,7 +249,7 @@ static void ackTask(NSString *taskId, BOOL ok, NSString *error) {
   }
   if (ok) NSLog(@"dsh-status-box companion: task delivered");
   else NSLog(@"dsh-status-box companion: task failed: %@", error.length > 0 ? error : @"unknown");
-  notifyTaskResult(ok, error);
+  notifyTaskResult(ok, error, text);
 }
 
 // --------------------------------------------------------------------- helpers
@@ -477,6 +500,7 @@ static void refreshTitle(void) {
 - (void)hideWindow;
 - (void)refreshFromStatus;
 - (void)flashResult:(BOOL)ok error:(NSString *)error;
+- (void)presentResult:(BOOL)ok error:(NSString *)error text:(NSString *)text;
 @end
 
 @implementation CaptureController {
@@ -710,13 +734,46 @@ static void refreshTitle(void) {
 }
 
 - (void)flashResult:(BOOL)ok error:(NSString *)error {
+  [self presentResult:ok error:error text:nil];
+}
+
+/**
+ * Delivery result for a task typed in this window. The window is hidden right
+ * after submitting, so a failure has to come back into view: re-open it with
+ * the original text, focus the field and say what went wrong, otherwise the
+ * user never learns that the task did not start.
+ */
+- (void)presentResult:(BOOL)ok error:(NSString *)error text:(NSString *)text {
   if (ok) {
     NSLog(@"dsh-status-box companion: task delivered");
     return;
   }
-  NSLog(@"dsh-status-box companion: task failed: %@", error);
+  NSLog(@"dsh-status-box companion: task failed: %@", error.length > 0 ? error : @"unknown");
+  if (text.length > 0) {
+    [self showWindow];
+    _field.stringValue = text;
+    _field.textColor = [NSColor labelColor];
+    [_window makeFirstResponder:_field];
+    [_field selectText:nil];
+  } else if (!_window.isVisible) {
+    [self showWindow];
+  }
+  // The field holds the retry text, so the placeholder cannot carry the reason:
+  // show it where the return hint usually lives and tint the glyph red.
+  _glyph.contentTintColor = [NSColor systemRedColor];
+  _hint.stringValue = [NSString stringWithFormat:@"发送失败（%@）", error.length > 0 ? error : @"未知错误"];
+  _hint.textColor = [NSColor systemRedColor];
   NSBeep();
-  _field.placeholderString = [NSString stringWithFormat:@"发送失败：%@", error.length > 0 ? error : @"未知错误"];
+
+  __weak CaptureController *weakSelf = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), ^{
+                   CaptureController *strongSelf = weakSelf;
+                   if (strongSelf == nil) return;
+                   strongSelf->_glyph.contentTintColor = [NSColor secondaryLabelColor];
+                   strongSelf->_hint.stringValue = @"↵";
+                   strongSelf->_hint.textColor = [NSColor tertiaryLabelColor];
+                 });
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
@@ -784,9 +841,9 @@ static void hideCaptureWindow(void) {
   [gCapture hideWindow];
 }
 
-static void notifyTaskResult(BOOL ok, NSString *error) {
+static void notifyTaskResult(BOOL ok, NSString *error, NSString *text) {
   postOnMain(^{
-    [gCapture flashResult:ok error:error];
+    [gCapture presentResult:ok error:error text:text];
   });
 }
 
@@ -933,11 +990,17 @@ static DockMenu *gMenu = nil;
 // ------------------------------------------------------------- local HTTP server
 
 static void respond(int client, int code, const char *body) {
-  const char *reason = code == 200 ? "OK" : (code == 204 ? "No Content" : "Not Found");
+  const char *reason = "Not Found";
+  if (code == 200) reason = "OK";
+  else if (code == 204) reason = "No Content";
+  else if (code == 403) reason = "Forbidden";
   NSMutableString *head = [NSMutableString string];
   [head appendFormat:@"HTTP/1.1 %d %s\r\n", code, reason];
   [head appendString:@"Content-Type: application/json; charset=utf-8\r\n"];
-  [head appendString:@"Access-Control-Allow-Origin: *\r\n"];
+  if (tBridgeAllowedOrigin[0] != '\0') {
+    [head appendFormat:@"Access-Control-Allow-Origin: %s\r\n", tBridgeAllowedOrigin];
+    [head appendString:@"Vary: Origin\r\n"];
+  }
   [head appendString:@"Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"];
   [head appendString:@"Access-Control-Allow-Headers: Content-Type\r\n"];
   [head appendString:@"Cache-Control: no-store\r\n"];
@@ -1003,6 +1066,24 @@ static void handleClient(int client) {
   NSString *path = parts.count > 1 ? parts[1] : @"/";
   NSRange query = [path rangeOfString:@"?"];
   if (query.location != NSNotFound) path = [path substringToIndex:query.location];
+
+  tBridgeAllowedOrigin[0] = '\0';
+  NSString *origin = nil;
+  for (NSString *line in lines) {
+    if ([[line lowercaseString] hasPrefix:@"origin:"]) {
+      origin = [[line substringFromIndex:7] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+      break;
+    }
+  }
+  if (!bridgeOriginAllowed(origin)) {
+    NSLog(@"dsh-status-box companion: rejected origin %@", origin);
+    respond(client, 403, "{\"ok\":false,\"error\":\"origin\"}");
+    close(client);
+    return;
+  }
+  if (origin.length > 0) {
+    strlcpy(tBridgeAllowedOrigin, origin.UTF8String, sizeof(tBridgeAllowedOrigin));
+  }
 
   NSLog(@"dsh-status-box companion: %@ %@", method, path);
 
@@ -1093,16 +1174,13 @@ static void handleClient(int client) {
       respond(client, 200, copy);
       free(copy);
     }
-  } else if ([path isEqualToString:@"/clientlog"] && [method isEqualToString:@"POST"]) {
-    if (body != nil) NSLog(@"dsh-status-box companion: clientlog %@", [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]);
-    respond(client, 200, "{\"ok\":true}");
-  } else if ([path isEqualToString:@"/debug"]) {
+  } else if ([path isEqualToString:@"/debug"] && debugRoutesEnabled()) {
     NSData *data = gRaw != nil ? [gRaw dataUsingEncoding:NSUTF8StringEncoding] : [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
     const char *text = data.bytes;
     char *copy = strndup(text, data.length);
     respond(client, 200, copy);
     free(copy);
-  } else if ([path isEqualToString:@"/panelstate"]) {
+  } else if ([path isEqualToString:@"/panelstate"] && debugRoutesEnabled()) {
     NSString *json = capturePanelStateJSON();
     respond(client, 200, json.UTF8String);
   } else if ([path isEqualToString:@"/hotkey"]) {

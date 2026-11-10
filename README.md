@@ -45,6 +45,7 @@
   - **DSH 关着也能用**：任务先入队，DSH 启动后 2 秒内自动发出
   - Carbon 全局热键，不需要辅助功能授权，也不会因为 DSH 不运行而失效
 - **窗口内不再有面板**：只留一个小胶囊显示汇总状态。DSH 内部的 `⌘⇧K` 等于「召唤原生输入窗」，点胶囊也是同一个动作。
+- **发失败会自己弹回来**：任务投递失败（比如 DSH 里没有可用的会话服务）时，输入框会重新弹出、文字保留并选中，右上角红字写明原因（如 `发送失败（noService）`），回车即可重试；不会再"静默消失"。
 - **配置页**：DSH → 设置 → **状态盒**，一个开关「发送后打开对话页」：
   - **开**：悬浮窗里发完，DSH 被拉到前台，并直接打开这个新会话（看它跑）。
   - **关**（默认）：任务照样在目标工作区开跑，但**不抢你的窗口**，你继续忙手头的事。
@@ -96,6 +97,7 @@ cd menubar
 - 插件客户端本来就能从 DSH 槽位（`useWorkspaces` / `useSessions` / `useSessionStatus`）读到所有工作区、会话的实时状态；它把精简 JSON POST 到 `http://127.0.0.1:59421/status`（8 秒心跳 + 状态一变就发）。
 - 原生小助手在 `127.0.0.1:59421` 起一个极小的 HTTP 服务：接住状态 → 菜单栏图标 / 菜单 / 悬浮窗 / `status.json`；你写下的任务进 `queue.json`，客户端每 2 秒反查 `/command` 取任务，用 `uiWorkspace.connectWorkspace()` + `sessions.using(...)` + `session.prompt(text, 'queue')` 在目标工作区新建会话并直接发送，然后 `POST /command/ack` 回执。
 - 配置页的开关也走同一条回环：`GET /config` 读、`POST /config` 写（`{"openOnSend":bool}`）。小助手把偏好快照进每个排队任务（`open` 字段），客户端只在 `open === true` 时才用 `uiWorkspace.openSession()` 跳到新会话；关闭时任务照样发，只是不动你的视图。
+- **回环桥只认 DSH 自己**：带 `Origin` 的请求必须来自 `dsh-app://…`（桌面壳）或 `http://127.0.0.1:*` / `http://localhost:*`（Web 版），其它来源直接 `403`；不带 `Origin` 的本机脚本（curl、安装脚本）照常可用。`/debug`、`/panelstate` 这类会暴露会话标题、输入框草稿的调试路由默认关闭，只有给进程设了 `DSH_STATUS_BOX_DEBUG=1` 才开放。
 - **只走本机回环，不联网、不上传、不读 DSH 数据库**。页面源 `127.0.0.1:60166` → `127.0.0.1:59421` 是简单跨域请求（`Content-Type: text/plain`，无预检），小助手只回 `Access-Control-Allow-Origin: *`。
 - 为什么菜单栏要单独一个原生程序：DSH 的 `Tray` 由打包好的 Electron 主进程创建，插件跑在 Host 子进程，没有托盘/角标接口；只能用原生小助手承载，再和插件走上面的本地回环。
 
@@ -104,11 +106,22 @@ cd menubar
 - **状态常驻**：DSH 还开着（前台/后台/最小化/窗口关掉都算）就一直显示最后已知数量与颜色，不会自己变灰；只有退出 DSH 90 秒后才转灰 `○`。
 - **悬浮窗只出现在鼠标所在屏幕**；如果你正处在别的 App 的"全屏空间"里，macOS 不允许其它 App 的窗口盖在上面（系统级限制，菜单栏状态项不受影响）。先退出全屏或切到桌面空间再按。
 - **DSH 完全没开时**任务停在 `queue.json`，等 DSH 启动后自动发出（悬浮窗占位符会提示"DSH 未运行：输入任务，启动后自动发出…"）。
+- 菜单里点某个会话只会把 DSH 主窗口带到前台，**跳不到那个具体会话**：打包的 DSH 壳只处理 `dsh://open` 一个 URL，不认会话级 deep link。
 - 菜单栏小助手只支持 macOS；Windows / Linux 上只有窗口顶部那个状态胶囊。配置页需要小助手在跑（连不上时开关会置灰并提示）。
 - 改了 `client.js` 的配置页不生效时，先确认 `menubar/install.sh` 装的小助手在运行（`launchctl list | grep com.dsh.statusbox`）。
 - 改了 `menubar/main.m` 要重跑 `menubar/install.sh`；只改 `client.js` 时客户端会自动热更新。
 - 开发期热更新会残留旧实例的 2 秒轮询，偶尔出现"召唤被旧实例吃掉"。重启一次 DSH 即恢复。
 - 菜单栏图标取自 DeepSeek Harness 官方安装包内的品牌图形，仅作本地个人使用；如需二次分发请注意商标准入。
+
+## 测试
+
+纯函数（状态聚合、桥接负载）有 `node:test` 覆盖，**零依赖**，不需要 `npm install`：
+
+```bash
+node --test tests/*.cjs
+```
+
+覆盖：会话按工作区归属、子代理/空会话/归档过滤、状态优先级（待处理 > 运行中 > 已完成）、组与行排序、无工作区会话的兜底分组、空工作区也上报、会话列表 10 条上限。
 
 ## 文件
 
@@ -121,6 +134,7 @@ dsh-status-box/
 ├── locale/{en,zh}.json # 插件市场里显示的名称和说明
 ├── icon.svg            # 插件图标
 ├── docs/screenshots/   # README 截图
+├── tests/              # node:test 纯函数用例（零依赖）
 └── menubar/            # macOS 菜单栏小助手
     ├── main.m          # NSStatusItem + 全局热键 + 悬浮窗 + 本地 HTTP 服务
     ├── whale.png       # 鲸鱼 alpha 蒙版（按状态色填充）

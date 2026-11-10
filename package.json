@@ -1,6 +1,6 @@
 {
   "name": "dsh-status-box",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": false,
   "type": "module",
   "description": "macOS menu-bar status + quick task capture for DeepSeek Harness: a persistent whale icon with running/waiting counts, and one global hotkey to fire a task into any workspace without opening the app.",
@@ -58,6 +58,7 @@
   "scripts": {
     "build:menubar": "bash menubar/build.sh",
     "install:menubar": "bash menubar/install.sh",
-    "uninstall:menubar": "bash menubar/uninstall.sh"
+    "uninstall:menubar": "bash menubar/uninstall.sh",
+    "test": "node --test tests/*.cjs"
   }
 }
