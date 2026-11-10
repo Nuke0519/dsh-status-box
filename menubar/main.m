@@ -1221,7 +1221,9 @@ static void handleClient(int client) {
         }
       }
     }
-    NSString *json = [NSString stringWithFormat:@"{\"openOnSend\":%d}", configBool(@"openOnSend", NO) ? 1 : 0];
+    // JSON booleans, not 0/1: the settings page type-checks the field.
+    NSString *json = [NSString stringWithFormat:@"{\"openOnSend\":%@}",
+                                                configBool(@"openOnSend", NO) ? @"true" : @"false"];
     const char *text = json.UTF8String;
     char *copy = strndup(text, strlen(text));
     respond(client, 200, copy);

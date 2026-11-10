@@ -107,6 +107,7 @@ window.__ModuleLoader__.load({
       '.qd-settings-note{margin:0;color:var(--dsw-alias-state-warn-primary,#d97706);font-size:12px}',
       '.qd-retry{margin-left:6px;padding:0;border:none;background:none;color:var(--dsw-alias-brand-primary,#4f6ef7);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline}',
       '.qd-retry:hover{opacity:.8}',
+      '.qd-settings-detail{opacity:.75}',
       '.qd-switch{flex:none;position:relative;width:38px;height:22px;padding:0;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#dfe3e8);background:var(--dsw-alias-bg-layer-2,#f1f3f6);cursor:pointer;transition:background .15s,border-color .15s}',
       '.qd-switch.on{background:var(--dsw-alias-brand-primary,#4f6ef7);border-color:var(--dsw-alias-brand-primary,#4f6ef7)}',
       '.qd-switch:disabled{cursor:default;opacity:.5}',
@@ -604,7 +605,7 @@ window.__ModuleLoader__.load({
      */
     function SettingsSection(props) {
       const t = props.t;
-      const [state, setState] = React.useState({ phase: 'loading', openOnSend: false });
+      const [state, setState] = React.useState({ phase: 'loading', openOnSend: false, detail: '' });
 
       // Bumped to re-run the probe: automatic retries while the companion starts
       // up, plus a manual retry from the offline note below.
@@ -614,14 +615,16 @@ window.__ModuleLoader__.load({
         let stopped = false;
         let timer = 0;
         function retryLater() {
-          if (stopped || attempt >= 5) return;
+          if (stopped) return;
+          // first few probes are quick (the companion may still be launching),
+          // then settle on a slow heartbeat so the page self-heals without a reload
           timer = setTimeout(function () {
             setAttempt(attempt + 1);
-          }, 1200 + attempt * 800);
+          }, attempt < 5 ? 1200 + attempt * 800 : 5000);
         }
-        function fail() {
+        function fail(reason) {
           if (stopped) return;
-          setState({ phase: 'offline', openOnSend: false });
+          setState({ phase: 'offline', openOnSend: false, detail: reason === undefined ? '' : String(reason) });
           retryLater();
         }
         try {
@@ -631,17 +634,24 @@ window.__ModuleLoader__.load({
           }
           fetch(BRIDGE_BASE + '/config', { cache: 'no-store' })
             .then(function (response) {
-              return response.ok ? response.json() : null;
+              if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+              }
+              return response.json();
             })
             .then(function (config) {
               if (stopped) return;
-              if (config !== null && config !== undefined && typeof config.openOnSend === 'boolean') {
-                setState({ phase: 'ready', openOnSend: config.openOnSend });
+              const value = config === null || config === undefined ? undefined : config.openOnSend;
+              // accept both JSON booleans and 0/1 so an older companion still works
+              if (typeof value === 'boolean' || (typeof value === 'number' && (value === 0 || value === 1))) {
+                setState({ phase: 'ready', openOnSend: value === true || value === 1 });
               } else {
-                fail();
+                fail('unexpected payload: ' + JSON.stringify(config));
               }
             })
-            .catch(fail);
+            .catch(function (error) {
+              fail(error && error.message ? error.message : 'network error');
+            });
         } catch (error) {
           fail();
         }
@@ -710,6 +720,7 @@ window.__ModuleLoader__.load({
               'p',
               { className: 'qd-settings-note' },
               t('settings.offline'),
+              state.detail ? h('span', { className: 'qd-settings-detail' }, '（' + state.detail + '）') : null,
               ' ',
               h(
                 'button',
