@@ -965,19 +965,11 @@ static void ring(void) {
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem *summon = [menu addItemWithTitle:@"新建任务…  ⌥⌘⇧D" action:@selector(actionSummon) keyEquivalent:@""];
   summon.target = self;
-  NSMenuItem *openOnSend = [menu addItemWithTitle:@"发送后打开对话页" action:@selector(actionToggleOpenOnSend) keyEquivalent:@""];
-  openOnSend.target = self;
-  openOnSend.state = configBool(@"openOnSend", NO) ? NSControlStateValueOn : NSControlStateValueOff;
   NSMenuItem *open = [menu addItemWithTitle:@"打开 DSH" action:@selector(actionOpen) keyEquivalent:@""];
   open.target = self;
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem *quit = [menu addItemWithTitle:@"退出状态助手" action:@selector(actionQuit) keyEquivalent:@""];
   quit.target = self;
-}
-
-- (void)actionToggleOpenOnSend {
-  gConfig[@"openOnSend"] = @(!configBool(@"openOnSend", NO));
-  saveConfig();
 }
 
 - (void)actionOpen { openDsh(); }
@@ -986,6 +978,22 @@ static void ring(void) {
 @end
 
 static DockMenu *gMenu = nil;
+
+// Debug-only: the item titles the status menu currently shows, so tests can
+// assert what the user actually gets without driving the UI.
+static NSString *menuTitlesJSON(void) {
+  NSMenu *menu = gItem.menu;
+  if (menu == nil || gMenu == nil) return @"{\"items\":[]}";
+  // Build the menu the way opening it would, so the titles reflect reality.
+  [gMenu menuNeedsUpdate:menu];
+  NSMutableArray *titles = [NSMutableArray array];
+  for (NSMenuItem *item in menu.itemArray) {
+    if (item.isSeparatorItem) continue;
+    [titles addObject:item.title ?: @""];
+  }
+  NSData *data = [NSJSONSerialization dataWithJSONObject:@{ @"items": titles } options:0 error:NULL];
+  return data != nil ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
+}
 
 // ------------------------------------------------------------- local HTTP server
 
@@ -1180,6 +1188,9 @@ static void handleClient(int client) {
     char *copy = strndup(text, data.length);
     respond(client, 200, copy);
     free(copy);
+  } else if ([path isEqualToString:@"/menu"] && debugRoutesEnabled()) {
+    NSString *json = menuTitlesJSON();
+    respond(client, 200, json.UTF8String);
   } else if ([path isEqualToString:@"/panelstate"] && debugRoutesEnabled()) {
     NSString *json = capturePanelStateJSON();
     respond(client, 200, json.UTF8String);

@@ -49,7 +49,7 @@
 - **配置页**：DSH → 设置 → **状态盒**，一个开关「发送后打开对话页」：
   - **开**：悬浮窗里发完，DSH 被拉到前台，并直接打开这个新会话（看它跑）。
   - **关**（默认）：任务照样在目标工作区开跑，但**不抢你的窗口**，你继续忙手头的事。
-  - 菜单栏菜单里也有同一个开关（勾选状态与小助手一致）；配置写在 `~/Library/Application Support/DSHStatusBox/config.json`，两边共用。
+  - 开关只在这个配置页里（菜单栏菜单是纯功能菜单，不放配置项）；配置写在 `~/Library/Application Support/DSHStatusBox/config.json`。
 
 ## 安装
 
@@ -97,7 +97,7 @@ cd menubar
 - 插件客户端本来就能从 DSH 槽位（`useWorkspaces` / `useSessions` / `useSessionStatus`）读到所有工作区、会话的实时状态；它把精简 JSON POST 到 `http://127.0.0.1:59421/status`（8 秒心跳 + 状态一变就发）。
 - 原生小助手在 `127.0.0.1:59421` 起一个极小的 HTTP 服务：接住状态 → 菜单栏图标 / 菜单 / 悬浮窗 / `status.json`；你写下的任务进 `queue.json`，客户端每 2 秒反查 `/command` 取任务，用 `uiWorkspace.connectWorkspace()` + `sessions.using(...)` + `session.prompt(text, 'queue')` 在目标工作区新建会话并直接发送，然后 `POST /command/ack` 回执。
 - 配置页的开关也走同一条回环：`GET /config` 读、`POST /config` 写（`{"openOnSend":bool}`）。小助手把偏好快照进每个排队任务（`open` 字段），客户端只在 `open === true` 时才用 `uiWorkspace.openSession()` 跳到新会话；关闭时任务照样发，只是不动你的视图。
-- **回环桥只认 DSH 自己**：带 `Origin` 的请求必须来自 `dsh-app://…`（桌面壳）或 `http://127.0.0.1:*` / `http://localhost:*`（Web 版），其它来源直接 `403`；不带 `Origin` 的本机脚本（curl、安装脚本）照常可用。`/debug`、`/panelstate` 这类会暴露会话标题、输入框草稿的调试路由默认关闭，只有给进程设了 `DSH_STATUS_BOX_DEBUG=1` 才开放。
+- **回环桥只认 DSH 自己**：带 `Origin` 的请求必须来自 `dsh-app://…`（桌面壳）或 `http://127.0.0.1:*` / `http://localhost:*`（Web 版），其它来源直接 `403`；不带 `Origin` 的本机脚本（curl、安装脚本）照常可用。`/debug`、`/panelstate`、`/menu` 这类会暴露会话标题、输入框草稿、菜单内容的调试路由默认关闭，只有给进程设了 `DSH_STATUS_BOX_DEBUG=1` 才开放（`launchctl setenv DSH_STATUS_BOX_DEBUG 1` 后重启小助手）。
 - **只走本机回环，不联网、不上传、不读 DSH 数据库**。页面源 `127.0.0.1:60166` → `127.0.0.1:59421` 是简单跨域请求（`Content-Type: text/plain`，无预检），小助手只回 `Access-Control-Allow-Origin: *`。
 - 为什么菜单栏要单独一个原生程序：DSH 的 `Tray` 由打包好的 Electron 主进程创建，插件跑在 Host 子进程，没有托盘/角标接口；只能用原生小助手承载，再和插件走上面的本地回环。
 
