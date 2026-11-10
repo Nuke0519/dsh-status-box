@@ -49,11 +49,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/USERNAME/dsh-status-box.git"
+    "url": "git+https://github.com/Nuke0519/dsh-status-box.git"
   },
-  "homepage": "https://github.com/USERNAME/dsh-status-box#readme",
+  "homepage": "https://github.com/Nuke0519/dsh-status-box#readme",
   "bugs": {
-    "url": "https://github.com/USERNAME/dsh-status-box/issues"
+    "url": "https://github.com/Nuke0519/dsh-status-box/issues"
   },
   "scripts": {
     "build:menubar": "bash menubar/build.sh",
