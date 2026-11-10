@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
 
     // The bridge entry is deliberately headless, so the factory hands it the
     // task starter directly; every task id is delivered at most once per frame.
-    const taskSink = { startTask: null };
+    const taskSink = { startTask: null, openSession: null };
     const bridgeSeenTasks = [];
 
     //#region locale dictionaries
@@ -46,6 +46,11 @@ window.__ModuleLoader__.load({
       'bar.idle': '空闲',
       'bar.active': '{n} 个进行中',
       'bar.tip': '点击召唤输入窗 · ⌘⇧K',
+      'settings.title': '状态盒',
+      'settings.desc': '控制从悬浮窗发起任务之后发生什么。',
+      'settings.openOnSend': '发送后打开对话页',
+      'settings.openOnSendHint': '关掉就留在原地继续忙手头的事，任务照样在后台开跑。',
+      'settings.offline': '没连上菜单栏小助手（状态盒）。先运行 menubar/install.sh，或重启一次 DSH。',
       'time.now': '刚刚',
       'time.m': '{n} 分钟前',
       'time.h': '{n} 小时前',
@@ -58,7 +63,11 @@ window.__ModuleLoader__.load({
       'bar.idle': 'Idle',
       'bar.active': '{n} active',
       'bar.tip': 'Click to summon the capture window · ⌘⇧K',
-      'panel.filtering': 'Showing “{name}” only',
+      'settings.title': 'Status Box',
+      'settings.desc': 'Choose what happens after you send a task from the floating window.',
+      'settings.openOnSend': 'Open the conversation after sending',
+      'settings.openOnSendHint': 'Turn it off to stay where you are: the task still starts in the background.',
+      'settings.offline': 'The menu-bar companion is not reachable. Run menubar/install.sh, or restart DSH.',
       'time.now': 'just now',
       'time.m': '{n}m ago',
       'time.h': '{n}h ago',
@@ -81,6 +90,18 @@ window.__ModuleLoader__.load({
       '.qd-title{font-size:13px;font-weight:600;white-space:nowrap}',
       '.qd-icon-btn{margin-left:auto;flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;font-size:15px;line-height:1}',
       '.qd-icon-btn:hover{background:var(--dsw-alias-bg-layer-2,#f1f3f6);color:var(--dsw-alias-label-primary,#111827)}',
+      '.qd-settings{display:flex;flex-direction:column;gap:14px;padding:4px 2px 8px;max-width:560px;font:13px/1.55 var(--ds-font-family-sans,system-ui,-apple-system,"Segoe UI",sans-serif);color:var(--dsw-alias-label-primary,#111827)}',
+      '.qd-settings-title{font-size:15px;font-weight:600;margin:0}',
+      '.qd-settings-desc{margin:0;color:var(--dsw-alias-label-secondary,#6b7280)}',
+      '.qd-settings-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9eaed);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff)}',
+      '.qd-settings-label{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}',
+      '.qd-settings-hint{margin:0;color:var(--dsw-alias-label-secondary,#6b7280);font-size:12px}',
+      '.qd-settings-note{margin:0;color:var(--dsw-alias-state-warn-primary,#d97706);font-size:12px}',
+      '.qd-switch{flex:none;position:relative;width:38px;height:22px;padding:0;border-radius:999px;border:1px solid var(--dsw-alias-border-l2,#dfe3e8);background:var(--dsw-alias-bg-layer-2,#f1f3f6);cursor:pointer;transition:background .15s,border-color .15s}',
+      '.qd-switch.on{background:var(--dsw-alias-brand-primary,#4f6ef7);border-color:var(--dsw-alias-brand-primary,#4f6ef7)}',
+      '.qd-switch:disabled{cursor:default;opacity:.5}',
+      '.qd-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}',
+      '.qd-switch.on .qd-switch-knob{transform:translateX(16px)}',
     ].join('\n');
 
     function insertStyles(css, owner) {
@@ -453,8 +474,13 @@ window.__ModuleLoader__.load({
         }
       }
       taskSink.startTask(workspaceId, text).then(
-        function () {
+        function (sessionId) {
           ackTask(id, true, '');
+          // the companion brings DSH forward when "open after send" is on; this
+          // frame then reveals the session it just created
+          if (task.open === true && typeof taskSink.openSession === 'function') {
+            taskSink.openSession(sessionId);
+          }
         },
         function (failure) {
           ackTask(id, false, failure && failure.code ? failure.code : 'failed');
@@ -539,6 +565,103 @@ window.__ModuleLoader__.load({
       return null;
     }
     //#endregion
+
+    /**
+     * Settings page: one switch mirrored into the companion's config.json over
+     * the same loopback bridge. The native window reads it when a task is
+     * submitted, so both surfaces always agree.
+     */
+    function SettingsSection(props) {
+      const t = props.t;
+      const [state, setState] = React.useState({ phase: 'loading', openOnSend: false });
+
+      React.useEffect(function () {
+        let stopped = false;
+        function fail() {
+          if (!stopped) setState({ phase: 'offline', openOnSend: false });
+        }
+        try {
+          if (typeof fetch !== 'function') {
+            fail();
+            return function () {};
+          }
+          fetch(BRIDGE_BASE + '/config', { cache: 'no-store' })
+            .then(function (response) {
+              return response.ok ? response.json() : null;
+            })
+            .then(function (config) {
+              if (stopped) return;
+              if (config !== null && config !== undefined && typeof config.openOnSend === 'boolean') {
+                setState({ phase: 'ready', openOnSend: config.openOnSend });
+              } else {
+                fail();
+              }
+            })
+            .catch(fail);
+        } catch (error) {
+          fail();
+        }
+        return function () {
+          stopped = true;
+        };
+      }, []);
+
+      function setPreference(next) {
+        setState({ phase: 'ready', openOnSend: next });
+        try {
+          if (typeof fetch !== 'function') return;
+          fetch(BRIDGE_BASE + '/config', {
+            method: 'POST',
+            mode: 'cors',
+            cache: 'no-store',
+            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+            body: JSON.stringify({ openOnSend: next })
+          })
+            .then(function (response) {
+              if (!response.ok) throw new Error('config rejected');
+            })
+            .catch(function () {
+              setState({ phase: 'offline', openOnSend: next });
+            });
+        } catch (error) {
+          // ignore: the switch already shows the optimistic value
+        }
+      }
+
+      const ready = state.phase !== 'offline';
+      return h(
+        'div',
+        { className: 'qd-settings' },
+        h('h2', { className: 'qd-settings-title' }, t('settings.title')),
+        h('p', { className: 'qd-settings-desc' }, t('settings.desc')),
+        h(
+          'div',
+          { className: 'qd-settings-row' },
+          h(
+            'div',
+            { className: 'qd-settings-label' },
+            h('span', null, t('settings.openOnSend')),
+            h('p', { className: 'qd-settings-hint' }, t('settings.openOnSendHint'))
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              role: 'switch',
+              'aria-checked': state.openOnSend ? 'true' : 'false',
+              'aria-label': t('settings.openOnSend'),
+              className: 'qd-switch' + (state.openOnSend ? ' on' : ''),
+              disabled: !ready,
+              onClick: function () {
+                setPreference(!state.openOnSend);
+              }
+            },
+            h('span', { className: 'qd-switch-knob' })
+          )
+        ),
+        ready ? null : h('p', { className: 'qd-settings-note' }, t('settings.offline'))
+      );
+    }
 
     function wrapFailure(cause) {
       const failure = new Error(
@@ -628,7 +751,7 @@ window.__ModuleLoader__.load({
                 })
                 .then(
                   function () {
-                    resolve();
+                    resolve(sessionId);
                   },
                   function (cause) {
                     reject(wrapFailure(cause));
@@ -646,9 +769,21 @@ window.__ModuleLoader__.load({
         };
 
         taskSink.startTask = startTask;
+        taskSink.openSession = function (sessionId) {
+          const uiWorkspace = ctx.get('uiWorkspace');
+          if (uiWorkspace === undefined || uiWorkspace === null) return;
+          if (typeof uiWorkspace.openSession !== 'function') return;
+          try {
+            uiWorkspace.openSession(sessionId);
+          } catch (error) {
+            // navigation is cosmetic here: the task has already started
+          }
+        };
+        const boundOpenSession = taskSink.openSession;
         ctx.effect(function () {
           return function () {
             if (taskSink.startTask === startTask) taskSink.startTask = null;
+            if (taskSink.openSession === boundOpenSession) taskSink.openSession = null;
           };
         }, NS + ': bridge sink');
 
@@ -673,6 +808,22 @@ window.__ModuleLoader__.load({
           return ctx.slots.register(
             { name: 'conversation.header.leading', locale: NS, inject: () => ({ desk }) },
             StatusPill
+          );
+        });
+        const t = ctx.locale.bind(NS);
+        ctx.slots.inject('settings.section', function () {
+          return ctx.slots.register(
+            {
+              name: 'settings.section',
+              id: NS,
+              order: 35,
+              label: function () {
+                return t('settings.title');
+              },
+              locale: NS,
+              inject: () => ({ desk })
+            },
+            SettingsSection
           );
         });
         ctx.slots.inject('shell.overlay', function () {

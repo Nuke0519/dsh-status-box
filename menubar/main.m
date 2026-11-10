@@ -73,6 +73,9 @@ static NSString *gHotkeySource = @"carbon";
 static NSMutableArray *gQueue = nil;   // [{id,text,workspaceId,state,at}]
 static NSObject *gQueueToken = nil;    // guards gQueue and its file
 static BOOL gStatusFromDisk = NO;      // status loaded from disk, not live yet
+static NSMutableDictionary *gConfig = nil;  // {openOnSend: bool}, persisted
+static BOOL configBool(NSString *key, BOOL fallback);
+static void saveConfig(void);
 
 static void notifyTaskResult(BOOL ok, NSString *error);
 static void showCaptureWindow(void);
@@ -121,6 +124,34 @@ static BOOL dshRunning(void) {
   return NO;
 }
 
+// ------------------------------------------------------------------- config
+// The settings page inside DSH edits this over the local bridge and the menu
+// flips it too, so the file is the single source of truth for both sides.
+
+static void loadConfig(void) {
+  NSDictionary *saved = readJSONFile(statePath(@"config.json"));
+  gConfig = [NSMutableDictionary dictionary];
+  gConfig[@"openOnSend"] = @(NO);
+  if (saved != nil) {
+    for (NSString *key in saved) {
+      gConfig[key] = saved[key];
+    }
+  }
+  if (![gConfig[@"openOnSend"] isKindOfClass:[NSNumber class]]) gConfig[@"openOnSend"] = @(NO);
+}
+
+static BOOL configBool(NSString *key, BOOL fallback) {
+  if (gConfig == nil) return fallback;
+  id value = gConfig[key];
+  if (![value isKindOfClass:[NSNumber class]]) return fallback;
+  return [(NSNumber *)value boolValue];
+}
+
+static void saveConfig(void) {
+  if (gConfig == nil) return;
+  writeJSONFile([gConfig copy], statePath(@"config.json"));
+}
+
 // ------------------------------------------------------------- durable queue
 
 static void loadQueue(void) {
@@ -149,6 +180,8 @@ static NSDictionary *enqueueTask(NSString *workspaceId, NSString *text) {
   if (workspaceId.length > 0) task[@"workspaceId"] = workspaceId;
   task[@"state"] = @"pending";
   task[@"at"] = @([[NSDate date] timeIntervalSince1970]);
+  // snapshot the preference now: flipping it later must not move an old task
+  task[@"open"] = @(configBool(@"openOnSend", NO));
   @synchronized(gQueueToken) {
     [gQueue addObject:task];
     saveQueueLocked();
@@ -173,6 +206,7 @@ static NSArray *takePendingTasks(void) {
       wire[@"id"] = task[@"id"];
       wire[@"text"] = task[@"text"];
       wire[@"workspaceId"] = task[@"workspaceId"] ?: @"";
+      wire[@"open"] = task[@"open"] ?: @NO;
       [out addObject:wire];
     }
     if (out.count > 0) saveQueueLocked();
@@ -665,10 +699,14 @@ static void refreshTitle(void) {
     NSBeep();
     return;
   }
+  BOOL openAfterSend = configBool(@"openOnSend", NO);
   enqueueTask(_targetWorkspaceId ?: @"", text);
   BOOL running = dshRunning();
   [self hideWindow];
-  if (!running) openDsh();
+  // "open the conversation" brings DSH forward either way; the client half then
+  // navigates to the session it just created. Without the preference we only
+  // launch DSH when it is closed and leave the user where they were.
+  if (!running || openAfterSend) openDsh();
 }
 
 - (void)flashResult:(BOOL)ok error:(NSString *)error {
@@ -870,11 +908,19 @@ static void ring(void) {
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem *summon = [menu addItemWithTitle:@"新建任务…  ⌥⌘⇧D" action:@selector(actionSummon) keyEquivalent:@""];
   summon.target = self;
+  NSMenuItem *openOnSend = [menu addItemWithTitle:@"发送后打开对话页" action:@selector(actionToggleOpenOnSend) keyEquivalent:@""];
+  openOnSend.target = self;
+  openOnSend.state = configBool(@"openOnSend", NO) ? NSControlStateValueOn : NSControlStateValueOff;
   NSMenuItem *open = [menu addItemWithTitle:@"打开 DSH" action:@selector(actionOpen) keyEquivalent:@""];
   open.target = self;
   [menu addItem:[NSMenuItem separatorItem]];
   NSMenuItem *quit = [menu addItemWithTitle:@"退出状态助手" action:@selector(actionQuit) keyEquivalent:@""];
   quit.target = self;
+}
+
+- (void)actionToggleOpenOnSend {
+  gConfig[@"openOnSend"] = @(!configBool(@"openOnSend", NO));
+  saveConfig();
 }
 
 - (void)actionOpen { openDsh(); }
@@ -1068,6 +1114,25 @@ static void handleClient(int client) {
     char *copy = strndup(text, strlen(text));
     respond(client, 200, copy);
     free(copy);
+  } else if ([path isEqualToString:@"/config"] && ([method isEqualToString:@"GET"] || [method isEqualToString:@"POST"])) {
+    if ([method isEqualToString:@"POST"]) {
+      id json = body.length > 0 ? [NSJSONSerialization JSONObjectWithData:body options:0 error:NULL] : nil;
+      if ([json isKindOfClass:[NSDictionary class]]) {
+        id rawOpen = ((NSDictionary *)json)[@"openOnSend"];
+        if ([rawOpen isKindOfClass:[NSNumber class]]) {
+          // apply before replying so the caller gets the value it just set
+          @synchronized(gQueueToken) {
+            gConfig[@"openOnSend"] = @([rawOpen boolValue]);
+            saveConfig();
+          }
+        }
+      }
+    }
+    NSString *json = [NSString stringWithFormat:@"{\"openOnSend\":%d}", configBool(@"openOnSend", NO) ? 1 : 0];
+    const char *text = json.UTF8String;
+    char *copy = strndup(text, strlen(text));
+    respond(client, 200, copy);
+    free(copy);
   } else if ([path isEqualToString:@"/ping"]) {
     respond(client, 200, "{\"ok\":true}");
   } else {
@@ -1195,6 +1260,7 @@ static void registerEventMonitorFallback(void) {
 
   gQueueToken = [[NSObject alloc] init];
   loadQueue();
+  loadConfig();
 
   // last known status: the menu bar item and the floating window keep showing
   // it while DSH is closed (marked as stale after kStaleAfter)
