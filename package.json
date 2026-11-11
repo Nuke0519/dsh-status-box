@@ -71,6 +71,8 @@
     "uninstall:menubar": "bash menubar/uninstall.sh",
     "test": "node --test tests/*.cjs",
     "build:windows": "dotnet publish windows/src/DSHStatusBox.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/win-x64",
-    "test:windows": "dotnet run --project windows/tests/BridgeSmoke -c Release"
+    "test:windows": "dotnet run --project windows/tests/BridgeSmoke -c Release",
+    "verify": "bash scripts/verify.sh",
+    "verify:windows": "pwsh -File scripts/verify.ps1"
   }
 }

@@ -144,6 +144,15 @@ pwsh -File windows\dist\win-x64\install.ps1
 - 已在 GitHub 公开：<https://github.com/Nuke0519/dsh-status-box>（tag `v1.1.2`）
 - DSH 插件市场（dshmarket 的「发现」页）用的是人工审核索引 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，收录需要提一个 yml 的 PR；尚未提交。
 
+## 一键验证
+
+```bash
+./scripts/verify.sh        # macOS / Linux：插件测试 + 渲染 harness + 协议冒烟 + clang 编译 + WinForms 构建
+pwsh -File scripts\verify.ps1   # Windows：插件测试 + 协议冒烟 + WinForms 构建
+```
+
+缺工具的那一层会显示 `SKIP`；`--full` 时视为失败（适合 CI 用）。
+
 ## 测试
 
 纯函数（状态聚合、桥接负载）有 `node:test` 覆盖，**零依赖**，不需要 `npm install`：
