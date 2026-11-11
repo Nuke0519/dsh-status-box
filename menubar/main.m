@@ -72,11 +72,40 @@ static void hideCaptureWindow(void);
 static NSDictionary *gStatus = nil;      // last {v,ts,totals,workspaces,sessions}
 static NSString *gRaw = nil;             // raw last status body (debug)
 static NSTimeInterval gStatusAt = 0;     // time the last status arrived
+// The bridge serves requests on a utility queue while AppKit updates run on the
+// main thread, so the status snapshot is read and written from two threads.
+// Without this lock a handler can message a dictionary that applyStatus just
+// released — that crashed the companion on 2026-11-11 (SIGSEGV in dictAt).
+static NSObject *gStatusLock = nil;
 
 static BOOL dshRunning(void);
+static NSDictionary *currentStatus(void) {
+  @synchronized(gStatusLock) { return gStatus; }
+}
+
+static void storeStatus(NSDictionary *status) {
+  @synchronized(gStatusLock) { gStatus = status; }
+}
+
+static NSTimeInterval currentStatusAt(void) {
+  @synchronized(gStatusLock) { return gStatusAt; }
+}
+
+static void storeStatusAt(NSTimeInterval at) {
+  @synchronized(gStatusLock) { gStatusAt = at; }
+}
+
+static NSString *currentRaw(void) {
+  @synchronized(gStatusLock) { return gRaw; }
+}
+
+static void storeRaw(NSString *raw) {
+  @synchronized(gStatusLock) { gRaw = raw; }
+}
+
 static BOOL statusUsable(void) {
-  if (gStatus == nil) return NO;
-  if (([NSDate timeIntervalSinceReferenceDate] - gStatusAt) < kStaleAfter) return YES;
+  if (currentStatus() == nil) return NO;
+  if (([NSDate timeIntervalSinceReferenceDate] - currentStatusAt()) < kStaleAfter) return YES;
   return dshRunning();
 }
 static NSStatusItem *gItem = nil;
@@ -309,8 +338,8 @@ static void summonDock(void) {
 static void refreshTitle(void);
 
 static void applyStatus(NSDictionary *status) {
-  gStatus = status;
-  gStatusAt = [NSDate timeIntervalSinceReferenceDate];
+  storeStatus(status);
+  storeStatusAt([NSDate timeIntervalSinceReferenceDate]);
   gStatusFromDisk = NO;
   writeJSONFile(status, statePath(@"status.json"));
   refreshTitle();
@@ -435,7 +464,7 @@ static void refreshTitle(void) {
   NSInteger running = 0;
   NSInteger done = 0;
   if (live) {
-    NSDictionary *totals = dictAt(gStatus, @"totals");
+    NSDictionary *totals = dictAt(currentStatus(), @"totals");
     waiting = [numOr(totals, @"waiting", 0) integerValue];
     running = [numOr(totals, @"running", 0) integerValue];
     done = [numOr(totals, @"done", 0) integerValue];
@@ -468,7 +497,7 @@ static void refreshTitle(void) {
   if (!live) {
     [tips addObject:@"未连接（新建任务仍可用，会排队）"];
   } else {
-    if (!(gStatus != nil && ([NSDate timeIntervalSinceReferenceDate] - gStatusAt) < kStaleAfter)) {
+    if (!(currentStatus() != nil && ([NSDate timeIntervalSinceReferenceDate] - currentStatusAt()) < kStaleAfter)) {
       [tips addObject:@"状态为最后已知值（DSH 在运行）"];
     }
     if (waiting > 0) [tips addObject:[NSString stringWithFormat:@"%ld 个任务等你处理", (long)waiting]];
@@ -597,7 +626,7 @@ static void refreshTitle(void) {
 
 - (void)refreshFromStatus {
   [_workspaces removeAllObjects];
-  for (id item in arrayAt(gStatus, @"workspaces")) {
+  for (id item in arrayAt(currentStatus(), @"workspaces")) {
     if (![item isKindOfClass:[NSDictionary class]]) continue;
     NSString *identifier = ((NSDictionary *)item)[@"id"];
     NSString *title = ((NSDictionary *)item)[@"title"];
@@ -884,7 +913,7 @@ static void ring(void) {
     return;
   }
 
-  NSDictionary *totals = dictAt(gStatus, @"totals");
+  NSDictionary *totals = dictAt(currentStatus(), @"totals");
   NSInteger waiting = [numOr(totals, @"waiting", 0) integerValue];
   NSInteger running = [numOr(totals, @"running", 0) integerValue];
   NSInteger done = [numOr(totals, @"done", 0) integerValue];
@@ -909,7 +938,7 @@ static void ring(void) {
   NSMenuItem *head = [menu addItemWithTitle:[summary componentsJoinedByString:@"   "] action:nil keyEquivalent:@""];
   head.enabled = NO;
 
-  NSArray *workspaces = arrayAt(gStatus, @"workspaces");
+  NSArray *workspaces = arrayAt(currentStatus(), @"workspaces");
   if (workspaces.count > 0) {
     [menu addItem:[NSMenuItem separatorItem]];
     for (NSDictionary *workspace in workspaces) {
@@ -928,7 +957,7 @@ static void ring(void) {
     }
   }
 
-  NSArray *sessions = arrayAt(gStatus, @"sessions");
+  NSArray *sessions = arrayAt(currentStatus(), @"sessions");
   if (sessions.count > 0) {
     [menu addItem:[NSMenuItem separatorItem]];
     NSInteger shown = 0;
@@ -1162,11 +1191,12 @@ static void handleClient(int client) {
     if ([json isKindOfClass:[NSDictionary class]]) {
       NSDictionary *status = (NSDictionary *)json;
       double previousWaiting = 0;
-      if (gStatus != nil) {
-        previousWaiting = [numOr(dictAt(gStatus, @"totals"), @"waiting", 0) doubleValue];
+      NSDictionary *previous = currentStatus();
+      if (previous != nil) {
+        previousWaiting = [numOr(dictAt(previous, @"totals"), @"waiting", 0) doubleValue];
       }
       double nextWaiting = [numOr(dictAt(status, @"totals"), @"waiting", 0) doubleValue];
-      gRaw = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
+      storeRaw([[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]);
       postOnMain(^{
         applyStatus(status);
         if (nextWaiting > previousWaiting) ring();
@@ -1187,7 +1217,8 @@ static void handleClient(int client) {
       free(copy);
     }
   } else if ([path isEqualToString:@"/debug"] && debugRoutesEnabled()) {
-    NSData *data = gRaw != nil ? [gRaw dataUsingEncoding:NSUTF8StringEncoding] : [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *raw = currentRaw();
+    NSData *data = raw != nil ? [raw dataUsingEncoding:NSUTF8StringEncoding] : [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
     const char *text = data.bytes;
     char *copy = strndup(text, data.length);
     respond(client, 200, copy);
@@ -1361,11 +1392,11 @@ static void registerEventMonitorFallback(void) {
   // it while DSH is closed (marked as stale after kStaleAfter)
   NSDictionary *saved = readJSONFile(statePath(@"status.json"));
   if (saved != nil) {
-    gStatus = saved;
+    storeStatus(saved);
     gStatusFromDisk = YES;
     NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:statePath(@"status.json") error:NULL];
     NSDate *modified = attributes[NSFileModificationDate];
-    gStatusAt = modified != nil ? [modified timeIntervalSinceReferenceDate] : 0;
+    storeStatusAt(modified != nil ? [modified timeIntervalSinceReferenceDate] : 0);
   }
 
   gCapture = [[CaptureController alloc] init];
@@ -1416,6 +1447,7 @@ static void registerEventMonitorFallback(void) {
 @end
 
 int main(int argc, const char *argv[]) {
+  gStatusLock = [NSObject new];
   (void)argc;
   (void)argv;
   @autoreleasepool {

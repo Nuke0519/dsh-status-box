@@ -121,6 +121,13 @@ pwsh -File windows\dist\win-x64\install.ps1
 - **只走本机回环，不联网、不上传、不读 DSH 数据库**。页面源 `127.0.0.1:60166` → `127.0.0.1:59421` 是简单跨域请求（`Content-Type: text/plain`，无预检），小助手只回 `Access-Control-Allow-Origin: *`。
 - 为什么菜单栏要单独一个原生程序：DSH 的 `Tray` 由打包好的 Electron 主进程创建，插件跑在 Host 子进程，没有托盘/角标接口；只能用原生小助手承载，再和插件走上面的本地回环。
 
+## 变更记录
+
+- **1.2.1** — 修掉 macOS 小助手的一个崩溃：桥在后台队列里读状态快照的同时主线程在替换它，偶发 `SIGSEGV`（在 `dictAt` 里访问已释放的字典），表现为菜单栏鲸鱼突然消失。现在快照读写都加了锁；LaunchAgent 改为崩溃后自动重启（`KeepAlive` + `SuccessfulExit=false`），手动「退出状态盒」仍然不会复活。
+- **1.2.0** — 新增 Windows 版（托盘 / 全局热键 / 悬浮输入窗 / 桥 / 队列），macOS 侧加「一键验证」脚本。
+- **1.1.4** — 设置页 `/config` 回布尔 JSON 并兼容旧的 0/1，探活失败自动重试。
+- **1.1.3** — 回环桥补 `Access-Control-Allow-Private-Network` 预检头（Chrome PNA）。
+
 ## 故障排查
 
 - **设置页显示「没连上菜单栏小助手」**：说明 DSH 页面到 `127.0.0.1:59421` 的请求被浏览器拦下了。1.1.3 起本机桥会回 `Access-Control-Allow-Private-Network: true`（Chrome 的 Private Network Access 预检要求），旧版本在部分 Chrome 版本上会被拦；升级小助手后重新打开设置页即可。

@@ -52,7 +52,8 @@ cat > "$PLIST" <<PLISTEOF
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key><array><string>$MACOS/dshstatusbox</string></array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><false/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
   <key>ProcessType</key><string>Interactive</string>
   <key>LimitLoadToSessionType</key><string>Aqua</string>
   <key>StandardErrorPath</key><string>$PREFIX/companion.log</string>
