@@ -77,3 +77,17 @@ DSH 页面（client.js 胶囊 + 桥）
 ```
 
 两边可以同时装（同一台机器上不同时跑两份），配置/队列文件格式一致。
+
+## 在虚拟机里自测（无需 DSH）
+
+```powershell
+# 在 Windows 虚拟机里执行（Parallels / VMware / Hyper-V 都行）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke-vm.ps1
+```
+
+脚本会自己找到 exe（当前目录 → publish 目录 → `%LOCALAPPDATA%\Programs\DSHStatusBox`），
+启动后验证：桥就绪 → 状态上报与解析 → 托盘/热键（用真的 `user32!keybd_event` 合成
+`Ctrl+Alt+Shift+D`）→ 输入窗可见性 → 截图 → 输入一条任务并确认进入队列 → 配置往返。
+结果写到桌面：`smoke-report.txt`、`smoke-screenshot.png`，并打包成 `smoke-report.zip`。
+
+不需要在这台机器上装 DSH：这条脚本验证的是 Windows 外壳自身（托盘 / 热键 / 输入窗 / 桥 / 队列）。

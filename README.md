@@ -144,6 +144,16 @@ pwsh -File windows\dist\win-x64\install.ps1
 - 已在 GitHub 公开：<https://github.com/Nuke0519/dsh-status-box>（tag `v1.1.2`）
 - DSH 插件市场（dshmarket 的「发现」页）用的是人工审核索引 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，收录需要提一个 yml 的 PR；尚未提交。
 
+## 在虚拟机里自测（无需 DSH 本机）
+
+Windows 虚拟机里跑一条：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\smoke-vm.ps1
+```
+
+会自动验证托盘图标、`Ctrl+Alt+Shift+D` 热键、悬浮输入窗、桥与队列，产物在桌面。
+
 ## 一键验证
 
 ```bash
