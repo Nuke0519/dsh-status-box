@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>DSHStatusBox.Core</AssemblyName>
+    <RootNamespace>DSHStatusBox.Core</RootNamespace>
+    <Description>Platform-neutral core of the DSH Status Box companion: loopback bridge, task queue, settings.</Description>
+  </PropertyGroup>
+
+</Project>

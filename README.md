@@ -1,6 +1,13 @@
 # dsh-status-box · 状态盒
 
-**DeepSeek Harness 的 macOS 状态盒**：菜单栏常驻一条小鲸鱼看全局任务状态，按一下全局热键就能把任务丢进任意工作区——不用切回 DSH，也不用手动点开一个个工作区。
+**DeepSeek Harness 的状态盒**：菜单栏 / 任务栏常驻一条小鲸鱼看全局任务状态，按一下全局热键就能把任务丢进任意工作区——不用切回 DSH，也不用手动点开一个个工作区。macOS 与 Windows 共用同一套本机协议，插件侧不用改。
+
+| 平台 | 状态图标 | 全局热键 | 说明 |
+| --- | --- | --- | --- |
+| **macOS** | 系统菜单栏（Objective-C 小助手） | `⌥⌘⇧D` | 已在 macOS 实机运行验证 |
+| **Windows 10/11** | 任务栏托盘（.NET 8 WinForms） | `Ctrl+Alt+Shift+D` | 交叉编译通过、协议层冒烟测试通过；托盘/热键 UI 尚未在 Windows 实机跑过，欢迎反馈 |
+
+> Status + quick task capture for DeepSeek Harness on macOS **and Windows**. A persistent menu-bar / tray whale shows running and waiting counts across workspace, and one global hotkey opens a Spotlight-style box that starts a real session in the workspace you pick.
 
 > Status + quick task capture for DeepSeek Harness on macOS. A persistent menu-bar whale shows running / waiting / done counts across every workspace, and one global hotkey (`⌥⌘⇧D`) opens a Spotlight-style box that starts a real session in the workspace you pick.
 
@@ -79,6 +86,19 @@ cd menubar
 - 日志：`~/Library/Application Support/DSHStatusBox/companion.log`
 - 队列 / 最后状态 / 配置：`~/Library/Application Support/DSHStatusBox/{queue.json,status.json,config.json}`
 
+## Windows 安装
+
+```powershell
+# 用现成 exe：下载 Releases 里的 DSHStatusBox-win-x64.zip，解压后
+pwsh -File install.ps1
+
+# 或者自己构建（需要 .NET 8 SDK）
+pwsh -File windows\build.ps1
+pwsh -File windows\dist\win-x64\install.ps1
+```
+
+装完任务栏右下角出现小鲸鱼；`Ctrl+Alt+Shift+D` 打开输入窗。详见 [windows/README.md](windows/README.md)。
+
 ## 工作原理
 
 ```
@@ -113,7 +133,7 @@ cd menubar
 - **悬浮窗只出现在鼠标所在屏幕**；如果你正处在别的 App 的"全屏空间"里，macOS 不允许其它 App 的窗口盖在上面（系统级限制，菜单栏状态项不受影响）。先退出全屏或切到桌面空间再按。
 - **DSH 完全没开时**任务停在 `queue.json`，等 DSH 启动后自动发出（悬浮窗占位符会提示"DSH 未运行：输入任务，启动后自动发出…"）。
 - 菜单里点某个会话只会把 DSH 主窗口带到前台，**跳不到那个具体会话**：打包的 DSH 壳只处理 `dsh://open` 一个 URL，不认会话级 deep link。
-- 菜单栏小助手只支持 macOS；Windows / Linux 上只有窗口顶部那个状态胶囊。配置页需要小助手在跑（连不上时开关会置灰并提示）。
+- 原生小助手支持 macOS 与 Windows；Linux 上目前只有窗口顶部那个状态胶囊。配置页需要小助手在跑（连不上时开关会置灰并提示）。
 - 改了 `client.js` 的配置页不生效时，先确认 `menubar/install.sh` 装的小助手在运行（`launchctl list | grep com.dsh.statusbox`）。
 - 改了 `menubar/main.m` 要重跑 `menubar/install.sh`；只改 `client.js` 时客户端会自动热更新。
 - 开发期热更新会残留旧实例的 2 秒轮询，偶尔出现"召唤被旧实例吃掉"。重启一次 DSH 即恢复。

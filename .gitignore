@@ -1,10 +1,16 @@
 # build output
 menubar/dshstatusbox
 menubar/dshtaskdock
-*.app/
+*.app/Contents/
 
 # macOS
 .DS_Store
 
 # node
 node_modules/
+
+# .NET build output
+windows/**/bin/
+windows/**/obj/
+dist/
+*.exe

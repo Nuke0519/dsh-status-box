@@ -1,9 +1,9 @@
 {
   "name": "dsh-status-box",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "private": false,
   "type": "module",
-  "description": "macOS menu-bar status + quick task capture for DeepSeek Harness: a persistent whale icon with running/waiting counts, and one global hotkey to fire a task into any workspace without opening the app.",
+  "description": "Status bar companion for DeepSeek Harness on macOS and Windows: a persistent tray/menu-bar whale shows running and waiting sessions per workspace, and one global hotkey starts a new task from a native capture window.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -21,7 +21,17 @@
     "menubar/build.sh",
     "menubar/install.sh",
     "menubar/uninstall.sh",
-    "README.md"
+    "README.md",
+    "windows/build.ps1",
+    "windows/install.ps1",
+    "windows/uninstall.ps1",
+    "windows/README.md",
+    "windows/src/**/*.cs",
+    "windows/src/**/*.csproj",
+    "windows/src/**/*.manifest",
+    "windows/src/**/*.png",
+    "windows/tests/**/*.cs",
+    "windows/tests/**/*.csproj"
   ],
   "dsh": {
     "bundle": {
@@ -59,6 +69,8 @@
     "build:menubar": "bash menubar/build.sh",
     "install:menubar": "bash menubar/install.sh",
     "uninstall:menubar": "bash menubar/uninstall.sh",
-    "test": "node --test tests/*.cjs"
+    "test": "node --test tests/*.cjs",
+    "build:windows": "dotnet publish windows/src/DSHStatusBox.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist/win-x64",
+    "test:windows": "dotnet run --project windows/tests/BridgeSmoke -c Release"
   }
 }
