@@ -1,6 +1,6 @@
 {
   "name": "dsh-status-box",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": false,
   "type": "module",
   "description": "Status bar companion for DeepSeek Harness on macOS and Windows: a persistent tray/menu-bar whale shows running and waiting sessions per workspace, and one global hotkey starts a new task from a native capture window.",
@@ -31,7 +31,9 @@
     "windows/src/**/*.manifest",
     "windows/src/**/*.png",
     "windows/tests/**/*.cs",
-    "windows/tests/**/*.csproj"
+    "windows/tests/**/*.csproj",
+    "menubar/bin/dshstatusbox",
+    "menubar/install-prebuilt.sh"
   ],
   "dsh": {
     "bundle": {

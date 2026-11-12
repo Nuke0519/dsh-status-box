@@ -60,14 +60,23 @@
 
 ## 安装
 
-前置：macOS 11+、Xcode 命令行工具（`xcode-select --install`）、已安装 DeepSeek Harness 桌面端。
+### 一键装（推荐）
 
-1. **插件**：把本仓库作为 bundle 装进 DSH profile（插件市场 / 插件管理器里选这个目录，或 `dsh` 的 install_bundle 指向仓库根目录）。
-2. **菜单栏小助手**（编译 + 注册登录项，一步完成）：
+1. 在 DSH 插件市场里装 **dsh-status-box**（或把本仓库作为 bundle 装进 profile）。
+2. 打开 **DSH → 设置 → 状态盒**：菜单栏小助手没在跑时，这里会出现 **「安装菜单栏小助手」** 按钮。
+   点一下即可——插件自带的宿主半（`index.js`）会把仓库里预编译好的通用二进制（arm64 + x86_64）复制到
+   `~/Library/Application Support/DSHStatusBox`，ad-hoc 签名并注册登录项，**不需要 Xcode 命令行工具、不需要终端**。
+
+> 宿主半的改动在 DSH 重启后才会加载；从市场新装的插件本来就会在下一次启动时生效。
+
+### 手动装（终端）
 
 ```bash
-cd menubar
-./install.sh
+# 预编译版（不装 Xcode）
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Nuke0519/dsh-status-box/main/menubar/install-prebuilt.sh)"
+
+# 或者从源码编译 + 注册登录项（需要 Xcode 命令行工具：xcode-select --install）
+cd menubar && ./install.sh
 ```
 
 装完菜单栏就出现小鲸鱼，`⌥⌘⇧D` 立即可用；登录后自动启动。
@@ -123,6 +132,7 @@ pwsh -File windows\dist\win-x64\install.ps1
 
 ## 变更记录
 
+- **1.3.0** — 一键装：插件新增宿主半（`index.js`），注册 `GET /dsh-status-box/status` 与 `POST /dsh-status-box/install` 两条本机路由；设置页在桥离线时给出「安装菜单栏小助手」按钮，自动复制预编译通用二进制、ad-hoc 签名、注册 LaunchAgent（不再需要 Xcode 命令行工具）。新增 `menubar/install-prebuilt.sh`（终端用），Release 附带 `DSHStatusBox-menubar-macos-universal.zip`。
 - **1.2.1** — 修掉 macOS 小助手的一个崩溃：桥在后台队列里读状态快照的同时主线程在替换它，偶发 `SIGSEGV`（在 `dictAt` 里访问已释放的字典），表现为菜单栏鲸鱼突然消失。现在快照读写都加了锁；LaunchAgent 改为崩溃后自动重启（`KeepAlive` + `SuccessfulExit=false`），手动「退出状态盒」仍然不会复活。
 - **1.2.0** — 新增 Windows 版（托盘 / 全局热键 / 悬浮输入窗 / 桥 / 队列），macOS 侧加「一键验证」脚本。
 - **1.1.4** — 设置页 `/config` 回布尔 JSON 并兼容旧的 0/1，探活失败自动重试。
@@ -132,6 +142,7 @@ pwsh -File windows\dist\win-x64\install.ps1
 
 - **设置页显示「没连上菜单栏小助手」**：说明 DSH 页面到 `127.0.0.1:59421` 的请求被浏览器拦下了。1.1.3 起本机桥会回 `Access-Control-Allow-Private-Network: true`（Chrome 的 Private Network Access 预检要求），旧版本在部分 Chrome 版本上会被拦；升级小助手后重新打开设置页即可。
 - **开关加载中/离线**：页面会自己重试 5 次（约 1–5 秒间隔），也可以点提示后面的「重试」。
+- **「安装菜单栏小助手」按钮点了没反应/报错**：宿主半只在 DSH 启动时加载，刚装完插件先重启一次 DSH；仍失败时可点旁边的「复制安装命令」，在终端里粘贴执行（不装 Xcode 也能用）。
 - **热键没反应**：确认 `launchctl print gui/$(id -u)/com.dsh.statusbox.menubar` 有 pid；热键只在 `.app` 包里才收得到（`menubar/install.sh` 会打包）。
 
 ## 已知限制
@@ -140,7 +151,8 @@ pwsh -File windows\dist\win-x64\install.ps1
 - **悬浮窗只出现在鼠标所在屏幕**；如果你正处在别的 App 的"全屏空间"里，macOS 不允许其它 App 的窗口盖在上面（系统级限制，菜单栏状态项不受影响）。先退出全屏或切到桌面空间再按。
 - **DSH 完全没开时**任务停在 `queue.json`，等 DSH 启动后自动发出（悬浮窗占位符会提示"DSH 未运行：输入任务，启动后自动发出…"）。
 - 菜单里点某个会话只会把 DSH 主窗口带到前台，**跳不到那个具体会话**：打包的 DSH 壳只处理 `dsh://open` 一个 URL，不认会话级 deep link。
-- 原生小助手支持 macOS 与 Windows；Linux 上目前只有窗口顶部那个状态胶囊。配置页需要小助手在跑（连不上时开关会置灰并提示）。
+- 原生小助手支持 macOS 与 Windows；Linux 上目前只有窗口顶部那个状态胶囊。配置页需要小助手在跑（连不上时开关会置灰，并给出「安装菜单栏小助手」按钮）。
+- **一键装依赖插件宿主半**：`index.js` 只在 DSH 启动时加载，所以刚装完插件的那一次要重启 DSH，之后按钮才可用；不想重启就用「复制安装命令」。
 - 改了 `client.js` 的配置页不生效时，先确认 `menubar/install.sh` 装的小助手在运行（`launchctl list | grep com.dsh.statusbox`）。
 - 改了 `menubar/main.m` 要重跑 `menubar/install.sh`；只改 `client.js` 时客户端会自动热更新。
 - 开发期热更新会残留旧实例的 2 秒轮询，偶尔出现"召唤被旧实例吃掉"。重启一次 DSH 即恢复。
@@ -148,8 +160,11 @@ pwsh -File windows\dist\win-x64\install.ps1
 
 ## 收录状态
 
-- 已在 GitHub 公开：<https://github.com/Nuke0519/dsh-status-box>（tag `v1.1.2`）
-- DSH 插件市场（dshmarket 的「发现」页）用的是人工审核索引 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，收录需要提一个 yml 的 PR；尚未提交。
+- 已在 GitHub 公开：<https://github.com/Nuke0519/dsh-status-box>
+- **已收录进 DSH 插件市场**（索引 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)，条目 `data/plugins/Nuke0519__dsh-status-box.yml`，PR #14047 已合并）：
+  - 市场卡片：<https://awesome-dsh-plugin.com/p/Nuke0519/dsh-status-box/>
+  - 安装：`dsh plugin --profile web add github:Nuke0519/dsh-status-box`
+  - 卡片上的版本号/下载量来自 npm；本插件尚未发布 npm，所以这两项为空。
 
 ## 在虚拟机里自测（无需 DSH 本机）
 

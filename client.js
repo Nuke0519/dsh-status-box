@@ -58,6 +58,13 @@ window.__ModuleLoader__.load({
       'settings.openOnSendHint': '关掉就留在原地继续忙手头的事，任务照样在后台开跑。',
       'settings.offline': '没连上菜单栏小助手（状态盒）。先运行 menubar/install.sh，或重启一次 DSH。',
       'settings.retry': '重试',
+      'settings.install': '安装菜单栏小助手',
+      'settings.installing': '正在安装…',
+      'settings.installed': '已安装，正在连接…',
+      'settings.installFailed': '安装失败：{reason}',
+      'settings.copyCommand': '复制安装命令',
+      'settings.copied': '已复制',
+      'settings.notMac': '菜单栏小助手目前只支持 macOS。',
       'time.now': '刚刚',
       'time.m': '{n} 分钟前',
       'time.h': '{n} 小时前',
@@ -76,6 +83,13 @@ window.__ModuleLoader__.load({
       'settings.openOnSendHint': 'Turn it off to stay where you are: the task still starts in the background.',
       'settings.offline': 'The menu-bar companion is not reachable. Run menubar/install.sh, or restart DSH.',
       'settings.retry': 'Retry',
+      'settings.install': 'Install menu-bar companion',
+      'settings.installing': 'Installing…',
+      'settings.installed': 'Installed — connecting…',
+      'settings.installFailed': 'Install failed: {reason}',
+      'settings.copyCommand': 'Copy install command',
+      'settings.copied': 'Copied',
+      'settings.notMac': 'The menu-bar companion is macOS only.',
       'time.now': 'just now',
       'time.m': '{n}m ago',
       'time.h': '{n}h ago',
@@ -599,6 +613,28 @@ window.__ModuleLoader__.load({
     //#endregion
 
     /**
+     * The one-click installer endpoint served by the Host half. Resolved against
+     * the page URL so it works both inside the desktop shell (dsh-app://app/…,
+     * which the shell forwards to the Harness web server) and in a browser tab.
+     */
+    function companionInstallUrl(suffix) {
+      try {
+        return new URL('/dsh-status-box/' + suffix, window.location.href).href;
+      } catch (error) {
+        return '';
+      }
+    }
+
+    function isMacPlatform() {
+      try {
+        const probe = String(navigator.platform || '') + ' ' + String(navigator.userAgent || '');
+        return probe.indexOf('Mac') !== -1;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /**
      * Settings page: one switch mirrored into the companion's config.json over
      * the same loopback bridge. The native window reads it when a task is
      * submitted, so both surfaces always agree.
@@ -612,6 +648,14 @@ window.__ModuleLoader__.load({
       const [attempt, setAttempt] = React.useState(0);
 
       React.useEffect(function () {
+        // TEMP-PROBE-BEGIN: prove the renderer reaches the Host route
+        try {
+          const probe = companionInstallUrl('status?probe=client');
+          if (probe && typeof fetch === 'function') fetch(probe, { cache: 'no-store' }).catch(function () {});
+        } catch (error) {
+          // diagnostics only
+        }
+        // TEMP-PROBE-END
         let stopped = false;
         let timer = 0;
         function retryLater() {
@@ -683,6 +727,53 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const [install, setInstall] = React.useState({ phase: 'idle', error: '' });
+      const [copied, setCopied] = React.useState(false);
+
+      function installCompanion() {
+        const url = companionInstallUrl('install');
+        setInstall({ phase: 'busy', error: '' });
+        if (!url || typeof fetch !== 'function') {
+          setInstall({ phase: 'error', error: 'no endpoint' });
+          return;
+        }
+        fetch(url, {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'X-Dsh-Status-Box': 'install' },
+          body: ''
+        })
+          .then(function (response) {
+            return response.json().catch(function () {
+              return { ok: false, error: 'HTTP ' + response.status };
+            });
+          })
+          .then(function (result) {
+            if (result && result.ok === true) {
+              setInstall({ phase: 'done', error: '' });
+              setAttempt(attempt + 1);
+            } else {
+              setInstall({ phase: 'error', error: String((result && result.error) || 'unknown') });
+            }
+          })
+          .catch(function (error) {
+            setInstall({ phase: 'error', error: error && error.message ? error.message : 'network error' });
+          });
+      }
+
+      function copyInstallCommand() {
+        try {
+          const command = 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/Nuke0519/dsh-status-box/main/menubar/install-prebuilt.sh)"';
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(command);
+            setCopied(true);
+            setTimeout(function () { setCopied(false); }, 2000);
+          }
+        } catch (error) {
+          // clipboard unavailable: the button simply does nothing visible
+        }
+      }
+
       const ready = state.phase !== 'offline';
       return h(
         'div',
@@ -717,23 +808,61 @@ window.__ModuleLoader__.load({
         ready
           ? null
           : h(
-              'p',
-              { className: 'qd-settings-note' },
-              t('settings.offline'),
-              state.detail ? h('span', { className: 'qd-settings-detail' }, '（' + state.detail + '）') : null,
-              ' ',
+              'div',
+              null,
               h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'qd-retry',
-                  onClick: function () {
-                    setState({ phase: 'loading', openOnSend: state.openOnSend });
-                    setAttempt(attempt + 1);
-                  }
-                },
-                t('settings.retry')
-              )
+                'p',
+                { className: 'qd-settings-note' },
+                t('settings.offline'),
+                state.detail ? h('span', { className: 'qd-settings-detail' }, '（' + state.detail + '）') : null,
+                ' ',
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'qd-retry',
+                    onClick: function () {
+                      setState({ phase: 'loading', openOnSend: state.openOnSend });
+                      setAttempt(attempt + 1);
+                    }
+                  },
+                  t('settings.retry')
+                )
+              ),
+              isMacPlatform()
+                ? h(
+                    'div',
+                    { className: 'qd-settings-install' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'qd-install',
+                        disabled: install.phase === 'busy' || install.phase === 'done',
+                        onClick: installCompanion
+                      },
+                      install.phase === 'busy'
+                        ? t('settings.installing')
+                        : install.phase === 'done'
+                          ? t('settings.installed')
+                          : t('settings.install')
+                    ),
+                    install.phase === 'error'
+                      ? h(
+                          'p',
+                          { className: 'qd-settings-note' },
+                          t('settings.installFailed', { reason: install.error })
+                        )
+                      : null,
+                    install.phase === 'error'
+                      ? h(
+                          'button',
+                          { type: 'button', className: 'qd-retry', onClick: copyInstallCommand },
+                          copied ? t('settings.copied') : t('settings.copyCommand')
+                        )
+                      : null
+                  )
+                : h('p', { className: 'qd-settings-note' }, t('settings.notMac'))
             )
       );
     }

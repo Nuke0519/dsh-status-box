@@ -30,8 +30,8 @@ cat > "$APP/Contents/Info.plist" <<INFOEOF
   <key>CFBundleDisplayName</key><string>状态盒</string>
   <key>CFBundleExecutable</key><string>dshstatusbox</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.3.0</string>
+  <key>CFBundleVersion</key><string>1.3.0</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
