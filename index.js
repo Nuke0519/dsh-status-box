@@ -306,14 +306,21 @@ export function apply(ctx) {
 
   // One route per path: GET status and POST install are registered as a single
   // prefix route because the route table keys on (kind, path).
-  const dispose = webServer.register({
-    kind: 'prefix',
-    path: ROUTE_PREFIX,
-    resource: async (request) => {
-      const url = new URL(request.url)
-      return handle(request, url.pathname, url.searchParams)
-    },
-  })
-
-  ctx.effect(() => dispose)
+  try {
+    const dispose = webServer.register({
+      kind: 'prefix',
+      path: ROUTE_PREFIX,
+      resource: async (request) => {
+        const url = new URL(request.url)
+        return handle(request, url.pathname, url.searchParams)
+      },
+    })
+    ctx.effect(() => dispose)
+  } catch (error) {
+    try {
+      ctx.logger?.warn?.('[dsh-status-box] could not register the installer route: ' + String((error && error.message) || error))
+    } catch {
+      // logging is best effort
+    }
+  }
 }
