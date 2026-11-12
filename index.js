@@ -198,31 +198,37 @@ async function installCompanion() {
     : { ok: false, error: 'companion-not-responding', installed: true, running: false, port: BRIDGE_PORT, app }
 }
 
-function corsHeaders(request) {
-  const origin = request.headers.get('origin')
-  // Same-origin fetches from the Harness page carry no Origin header at all;
-  // only an explicitly foreign origin is refused.
+/**
+ * CORS and method headers for one request. The Harness page fetches these
+ * routes same-origin (dsh-app://app is forwarded to this server by the shell),
+ * so a missing Origin is fine and only a foreign Origin is refused.
+ */
+function responseHeaders(origin) {
   const allowed = !origin
     || origin === 'dsh-app://app'
     || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
-  const headers = new Headers({
+  const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     vary: 'Origin',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'Content-Type, X-Dsh-Status-Box, Access-Control-Request-Private-Network',
     'access-control-allow-private-network': 'true',
-  })
-  if (allowed) headers.set('access-control-allow-origin', origin || '*')
+  }
+  if (allowed) headers['access-control-allow-origin'] = origin || '*'
   return { headers, allowed }
 }
 
-function json(request, body, status = 200) {
-  const { headers, allowed } = corsHeaders(request)
+/** Send one JSON response on the raw node exchange this handler owns. */
+function sendJson(req, res, body, status = 200) {
+  const { headers, allowed } = responseHeaders(req.headers.origin)
   if (!allowed) {
-    return new Response(JSON.stringify({ ok: false, error: 'origin' }), { status: 403, headers })
+    res.writeHead(403, headers)
+    res.end(JSON.stringify({ ok: false, error: 'origin' }))
+    return
   }
-  return new Response(JSON.stringify(body), { status, headers })
+  res.writeHead(status, headers)
+  res.end(JSON.stringify(body))
 }
 
 async function companionState() {
@@ -231,17 +237,17 @@ async function companionState() {
   return { ok: true, installed, running, port: BRIDGE_PORT, app: appPath() }
 }
 
-async function writeClientProbe(request) {
+async function writeClientProbe(req, url) {
   try {
     await mkdir(supportDir(), { recursive: true })
     await writeFile(
       join(supportDir(), 'client-probe.json'),
       JSON.stringify({
         at: new Date().toISOString(),
-        method: request.method,
-        url: request.url,
-        origin: request.headers.get('origin'),
-        userAgent: request.headers.get('user-agent'),
+        method: req.method,
+        url,
+        origin: req.headers.origin,
+        userAgent: req.headers['user-agent'],
       }, null, 2),
       'utf8'
     )
@@ -250,45 +256,67 @@ async function writeClientProbe(request) {
   }
 }
 
-async function handle(request, pathname, searchParams) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders(request).headers })
+/**
+ * Route table entry point. A resource route only ever answers GET/HEAD (the
+ * web server replies 405 to everything else before matching), so the prefix is
+ * registered as a raw handler that owns the whole exchange and can accept the
+ * installer's POST.
+ */
+async function handle(req, res) {
+  const url = new URL(req.url || '/', 'http://127.0.0.1')
+  const pathname = url.pathname
+
+  if (req.method === 'OPTIONS') {
+    const { headers } = responseHeaders(req.headers.origin)
+    res.writeHead(204, headers)
+    res.end()
+    return
   }
 
-  if (searchParams.get('probe') === 'client') {
-    await writeClientProbe(request)
+  if (url.searchParams.get('probe') === 'client') {
+    await writeClientProbe(req, url.pathname + url.search)
   }
 
-  if (pathname === `${ROUTE_PREFIX}/status` && request.method === 'GET') {
-    return json(request, await companionState())
+  if (pathname === `${ROUTE_PREFIX}/status` && req.method === 'GET') {
+    sendJson(req, res, await companionState())
+    return
   }
 
-  if (pathname === `${ROUTE_PREFIX}/install` && request.method === 'POST') {
+  if (pathname === `${ROUTE_PREFIX}/install` && req.method === 'POST') {
     // A custom header cannot be forged by a cross-site form post: simple
     // requests cannot set one, and the preflight for it is refused for any
     // foreign origin.
-    if (request.headers.get('x-dsh-status-box') !== 'install') {
-      return json(request, { ok: false, error: 'forbidden' }, 403)
+    if (req.headers['x-dsh-status-box'] !== 'install') {
+      sendJson(req, res, { ok: false, error: 'forbidden' }, 403)
+      return
     }
     try {
       const state = await installCompanion()
-      return json(request, state, state.ok ? 200 : 500)
+      sendJson(req, res, state, state.ok ? 200 : 500)
     } catch (error) {
-      return json(request, { ok: false, error: String((error && error.message) || error) }, 500)
+      sendJson(req, res, { ok: false, error: String((error && error.message) || error) }, 500)
     }
+    return
   }
 
-  return json(request, { ok: false, error: 'not-found' }, 404)
+  sendJson(req, res, { ok: false, error: 'not-found' }, 404)
 }
 
-export const inject = { optional: ['webServer'] }
+async function packageVersion() {
+  try {
+    const manifest = JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8'))
+    return typeof manifest.version === 'string' ? manifest.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 
 async function markHostLoaded() {
   try {
     await mkdir(supportDir(), { recursive: true })
     await writeFile(
       join(supportDir(), 'host-loaded.json'),
-      JSON.stringify({ at: new Date().toISOString(), pid: process.pid, version: '1.3.0' }),
+      JSON.stringify({ at: new Date().toISOString(), pid: process.pid, version: await packageVersion() }),
       'utf8'
     )
   } catch {
@@ -310,9 +338,17 @@ export function apply(ctx) {
     const dispose = webServer.register({
       kind: 'prefix',
       path: ROUTE_PREFIX,
-      resource: async (request) => {
-        const url = new URL(request.url)
-        return handle(request, url.pathname, url.searchParams)
+      handler: (req, res) => {
+        handle(req, res).catch((error) => {
+          try {
+            if (!res.headersSent) {
+              res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+            }
+            res.end(JSON.stringify({ ok: false, error: String((error && error.message) || error) }))
+          } catch {
+            // the socket is already gone
+          }
+        })
       },
     })
     ctx.effect(() => dispose)

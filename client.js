@@ -648,14 +648,6 @@ window.__ModuleLoader__.load({
       const [attempt, setAttempt] = React.useState(0);
 
       React.useEffect(function () {
-        // TEMP-PROBE-BEGIN: prove the renderer reaches the Host route
-        try {
-          const probe = companionInstallUrl('status?probe=client');
-          if (probe && typeof fetch === 'function') fetch(probe, { cache: 'no-store' }).catch(function () {});
-        } catch (error) {
-          // diagnostics only
-        }
-        // TEMP-PROBE-END
         let stopped = false;
         let timer = 0;
         function retryLater() {
@@ -1011,7 +1003,7 @@ window.__ModuleLoader__.load({
           };
         }, NS + ': shortcuts');
 
-        ctx.slots.inject('conversation.header.leading', function () {
+    ctx.slots.inject('conversation.header.leading', function () {
           return ctx.slots.register(
             { name: 'conversation.header.leading', locale: NS, inject: () => ({ desk }) },
             StatusPill

@@ -132,6 +132,7 @@ pwsh -File windows\dist\win-x64\install.ps1
 
 ## 变更记录
 
+- **1.3.1** — 修掉一键安装的 405：Harness 的 `resource` 路由只答 `GET/HEAD`，其它方法在匹配前就被回 405，所以 `POST /dsh-status-box/install` 一直点不动。宿主半改成注册 RAW `handler` 路由（自己写响应、自己处理 `OPTIONS` 预检），`GET /dsh-status-box/status` 与 `POST /dsh-status-box/install` 现已在真实 DSH 里验证通过。
 - **1.3.0** — 一键装：插件新增宿主半（`index.js`），注册 `GET /dsh-status-box/status` 与 `POST /dsh-status-box/install` 两条本机路由；设置页在桥离线时给出「安装菜单栏小助手」按钮，自动复制预编译通用二进制、ad-hoc 签名、注册 LaunchAgent（不再需要 Xcode 命令行工具）。新增 `menubar/install-prebuilt.sh`（终端用），Release 附带 `DSHStatusBox-menubar-macos-universal.zip`。
 - **1.2.1** — 修掉 macOS 小助手的一个崩溃：桥在后台队列里读状态快照的同时主线程在替换它，偶发 `SIGSEGV`（在 `dictAt` 里访问已释放的字典），表现为菜单栏鲸鱼突然消失。现在快照读写都加了锁；LaunchAgent 改为崩溃后自动重启（`KeepAlive` + `SuccessfulExit=false`），手动「退出状态盒」仍然不会复活。
 - **1.2.0** — 新增 Windows 版（托盘 / 全局热键 / 悬浮输入窗 / 桥 / 队列），macOS 侧加「一键验证」脚本。
